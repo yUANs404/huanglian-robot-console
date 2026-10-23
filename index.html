@@ -70,6 +70,20 @@ main{max-width:560px;margin:0 auto;padding:calc(66px + env(safe-area-inset-top))
 .rear{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 14px}
 .rear button{display:flex;align-items:center;justify-content:center;gap:8px}
 .foot-note{font-size:11px;color:var(--muted);padding:0 16px 13px;margin:0}
+.mvmode{border:1px solid #22323c;border-radius:10px;background:#0e151a;padding:12px 14px;margin-bottom:14px}
+.mvmode-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:13px;color:#a9b8c1}
+.mvmode-row b{font-size:11px;color:var(--muted);letter-spacing:1px;font-weight:400}
+.mvmode-row label{display:flex;align-items:center;gap:6px;min-height:40px}
+.mvmode-row input{accent-color:var(--green);margin:0;width:16px;height:16px}
+.mvslider{display:flex;align-items:center;gap:12px;margin-top:8px}
+.mvslider input[type=range]{flex:1;accent-color:var(--cyan);height:36px}
+#mvVal{font-family:Consolas,monospace;color:var(--cyan);min-width:54px;text-align:right}
+#mvEst{font-size:12px;color:var(--muted);white-space:nowrap}
+.mvchips{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.mvchips button{min-height:36px;font-size:12px;padding:4px 14px}
+.mvconfirm{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#c6ad76;min-height:40px}
+.mvconfirm input{accent-color:var(--yellow);width:16px;height:16px;margin:0}
+.mvwarn{font-size:11px;color:var(--yellow);margin:6px 0 0;line-height:1.7}
 
 .sv{padding:13px 16px;border-bottom:1px solid #22323c}
 .sv:last-child{border:0}
@@ -156,6 +170,20 @@ main{max-width:560px;margin:0 auto;padding:calc(66px + env(safe-area-inset-top))
         <div class="stat"><b>设备连接</b><span id="stDevice">未连接</span></div>
         <div class="stat"><b>通信校验</b><span id="stVerify">—</span></div>
         <div class="stat"><b>收发字节</b><span class="mono" id="stTraffic">TX 0 / RX 0</span></div>
+      </div>
+    </section>
+
+    <section class="mvmode">
+      <div class="mvmode-row">
+        <b>行程模式</b>
+        <label><input type="radio" name="mvMode" value="fixed" checked>固定 1000</label>
+        <label><input type="radio" name="mvMode" value="custom">自定义</label>
+      </div>
+      <div id="mvCustom" hidden>
+        <div class="mvslider"><input type="range" id="mvPulses" min="200" max="10000" step="100" value="1000" aria-label="前进/后退脉冲数"><span id="mvVal">1000</span><span id="mvEst">≈1.0s</span></div>
+        <div class="mvchips"><button type="button" data-mv="500">500</button><button type="button" data-mv="1000">1000</button><button type="button" data-mv="2000">2000</button><button type="button" data-mv="5000">5000</button></div>
+        <label class="mvconfirm"><input type="checkbox" id="mvFwOk">已烧录 2026-10-24 后的新固件</label>
+        <p class="mvwarn">自定义帧 <span class="mono">FF BB 方向 脉冲 FE</span>，只影响前进 / 后退，左右转不变。未勾选确认时真机模式不发送；演示模式可试。</p>
       </div>
     </section>
 
@@ -251,7 +279,7 @@ main{max-width:560px;margin:0 auto;padding:calc(66px + env(safe-area-inset-top))
 
       <h3>四、指令协议（与桌面控制台一致）</h3>
       <table id="protocolTable"><tr><th>功能</th><th>帧（HEX）</th><th>回传</th></tr></table>
-      <p>每帧 6 字节 <code>FF 01 01 01 CMD FE</code>；舵机调试帧 <code>FF AA 舵机号 角度 00 FE</code>。</p>
+      <p>每帧 6 字节 <code>FF 01 01 01 CMD FE</code>；舵机调试帧 <code>FF AA 舵机号 角度 00 FE</code>；自定义行程帧 <code>FF BB 方向 脉冲低 脉冲高 FE</code>（需 2026-10-24 后固件，控制页"行程模式"面板使用）。</p>
 
       <h3>五、常见问题</h3>
       <ul>
@@ -498,9 +526,9 @@ function onAck(ack){
     setOp(state.mode==='demo'?'模拟通信校验通过':'通信校验通过','已收到 OK；固件接收链路正常，可以开始操作。');
     log('提示','ACK OK','测试指令已被固件识别');return;
   }
-  if(p&&COMMANDS[p.code]?.ack===ack){
+  if(p&&(p.ackName||COMMANDS[p.code]?.ack)===ack){
     p.ack=true;
-    setOp(COMMANDS[p.code].name+' · 固件已识别','回传 '+ack+' 先于电机动作。请观察动作完成，再点继续。');
+    setOp((p.name||COMMANDS[p.code].name)+' · 固件已识别','回传 '+ack+' 先于电机动作。请观察动作完成，再点继续。');
   }
 }
 async function sendCommand(code){
@@ -640,7 +668,45 @@ function releaseWake(){try{wakeLock?.release()}catch{}wakeLock=null}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.mode==='real')requestWake()});
 
 /* ================= 初始化 ================= */
-document.querySelectorAll('.command').forEach(b=>b.addEventListener('click',()=>sendCommand(Number(b.dataset.code))));
+/* ===== 自定义行程模式（固件 0xBB 指令，需 2026-10-24 之后固件） ===== */
+const mvFrame=(dir,pulses)=>new Uint8Array([255,0xBB,dir,pulses&0xFF,(pulses>>8)&0xFF,254]);
+const customMoveActive=()=>{const r=document.querySelector('input[name="mvMode"]:checked');return !!r&&r.value==='custom'};
+function syncMvUI(){
+  const custom=customMoveActive();$('mvCustom').hidden=!custom;
+  const p=Number($('mvPulses').value);
+  $('mvVal').textContent=p;$('mvEst').textContent='≈'+(p/1000).toFixed(1)+'s';
+}
+function dispatchCommand(code){
+  if(customMoveActive()&&(code===1||code===2)){sendCustomMove(code,Number($('mvPulses').value));return}
+  sendCommand(code);
+}
+async function sendCustomMove(dir,pulses){
+  if(state.pending||state.closing||!['real','demo'].includes(state.mode))return;
+  if(state.mode==='real'&&!$('mvFwOk').checked){toast('自定义行程需先勾选「已烧录新固件」',true);return}
+  pulses=Math.max(1,Math.min(65535,Math.round(pulses)));
+  const name=(dir===1?'前进':'后退')+' · '+pulses+' 脉冲';
+  const ack=dir===1?'ForWard':'Backward';
+  const estMs=Math.round(pulses*1.2)+400;
+  const epoch=state.epoch,sim=state.mode==='demo';
+  const pending={code:'mv',name,ackName:ack,sending:true,ack:false,releaseAfter:Date.now()+estMs};
+  state.pending=pending;
+  setOp(name+' · 正在发送','自定义行程，预计约 '+(pulses/1000).toFixed(1)+' 秒。');
+  try{
+    if(!sim){await writeSerial(mvFrame(dir,pulses));if(navigator.vibrate)navigator.vibrate(12)}
+    if(epoch!==state.epoch)return;
+    pending.sending=false;state.tx+=6;
+    log('TX',hex(mvFrame(dir,pulses)),name+' · '+(sim?'模拟发送':'已写入蓝牙'));
+    if(state.pending===pending)setOp(name+' · 已发送','等待固件识别回传；请观察实际动作。');
+    later(()=>{if(state.pending===pending)render()},estMs+30);
+    later(()=>{if(state.pending!==pending||pending.ack)return;log('提示','NO ACK',name+'：未收到预期回传，设备仍可能已执行');setOp(name+' · 尚未收到回传','设备仍可能正在动作。观察结束后再点继续。')},3000);
+    if(sim){later(()=>readBytes(new TextEncoder().encode(ack)),280);later(()=>{if(state.pending===pending){state.pending=null;log('提示','DEMO DONE',name+'模拟动作结束');setOp('演示动作已结束','实际设备的动作结束需由操作者现场确认。')}},Math.max(estMs+80,1250))}
+  }catch(error){if(epoch!==state.epoch)return;log('错误','WRITE ERROR',error.message);toast('发送失败：'+error.message,true);await disconnectBle('发送失败，蓝牙已断开；已下发的动作仍可能执行。')}
+}
+document.querySelectorAll('input[name="mvMode"]').forEach(r=>r.addEventListener('change',syncMvUI));
+$('mvPulses').addEventListener('input',syncMvUI);
+document.querySelectorAll('.mvchips button').forEach(b=>b.addEventListener('click',()=>{$('mvPulses').value=b.dataset.mv;syncMvUI()}));
+syncMvUI();
+document.querySelectorAll('.command').forEach(b=>b.addEventListener('click',()=>dispatchCommand(Number(b.dataset.code))));
 document.querySelectorAll('.tabbar [data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
 $('connectBtn').addEventListener('click',connectBle);
 $('demoBtn').addEventListener('click',demoToggle);
