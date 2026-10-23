@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b1014">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="黄连机器人手机遥控台：通过 Web 蓝牙（HC-08 BLE）单步控制行走与机构。">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>黄连机器人 · 手机遥控</title>
+<style>
+:root{--bg:#0b1014;--panel:#12191f;--panel2:#172128;--border:#253039;--muted:#81909b;--text:#edf3f5;--green:#b9f56a;--cyan:#6edbd6;--yellow:#eac680;--red:#f39792;--font:Inter,"Microsoft YaHei","PingFang SC",system-ui,sans-serif}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 var(--font);overscroll-behavior-y:contain;-webkit-tap-highlight-color:transparent}
+button,input,select{font:inherit}
+button{cursor:pointer;color:inherit;border:1px solid var(--border);background:var(--panel2);border-radius:12px;padding:12px 16px;min-height:46px;touch-action:manipulation;-webkit-user-select:none;user-select:none;transition:background .15s,border-color .15s}
+button:active:not(:disabled){transform:translateY(1px);background:#22313a}
+button:disabled{opacity:.38}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:Consolas,"Cascadia Code",monospace}
+.hidden,[hidden]{display:none!important}
+
+.topbar{position:fixed;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 14px 8px;background:#0d1318ee;border-bottom:1px solid var(--border);backdrop-filter:blur(8px)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:1px;font-size:15px}
+.brand .logo{width:32px;height:32px;border-radius:9px;background:var(--green);color:#18220e;display:grid;place-items:center;flex-shrink:0}
+.brand .logo svg{width:20px;height:20px}
+.top-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:6px;background:#202a30;padding:4px 9px;font-size:11px;color:#b9c5ca;white-space:nowrap;max-width:34vw;overflow:hidden;text-overflow:ellipsis}
+.pill.green{background:#202e1f;color:var(--green)}
+#demoBtn{min-height:38px;padding:6px 10px;font-size:12px;white-space:nowrap}
+#connectBtn{min-height:38px;padding:6px 14px;font-size:13px;background:var(--green);border-color:var(--green);color:#14200d;font-weight:700}
+
+main{max-width:560px;margin:0 auto;padding:calc(66px + env(safe-area-inset-top)) 14px calc(86px + env(safe-area-inset-bottom))}
+.banner{margin:0 0 12px;background:#2c2519;border:1px solid #605437;border-radius:10px;padding:10px 14px;color:var(--yellow);font-size:13px;line-height:1.7}
+.card{border:1px solid var(--border);border-radius:14px;background:var(--panel);margin-bottom:14px;overflow:hidden}
+.card-head{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:15px}
+.card-head small{color:var(--muted);font-weight:400;font-size:10px;letter-spacing:1px}
+
+.stats{display:grid;grid-template-columns:1.25fr .85fr 1.3fr;padding:12px 0}
+.stat{padding:0 12px;border-right:1px solid var(--border);min-width:0}
+.stat:last-child{border:0}
+.stat b{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-bottom:3px}
+.stat span{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+
+.op{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid #283940;background:#121d23;border-radius:14px;margin-bottom:14px}
+.op.busy{border-color:#6b633a}
+.op.busy .op-title{color:var(--yellow)}
+.op-title{font-size:15px;font-weight:600}
+.op-desc{font-size:12px;color:#7e949e}
+.op-actions{display:flex;gap:10px}
+.op-actions button{flex:1}
+#completeBtn{background:var(--green);border-color:var(--green);color:#14200d;font-weight:700;min-height:52px}
+
+.dpad{display:grid;grid-template-columns:repeat(3,78px);grid-template-rows:repeat(3,78px);gap:10px;justify-content:center;padding:18px 0}
+.dir{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:#1a252d;border-color:#33434d;font-size:12px;border-radius:16px}
+.dir svg{width:24px;height:24px}
+.dir.up{grid-area:1/2}.dir.left{grid-area:2/1}.dir.right{grid-area:2/3}.dir.down{grid-area:3/2}
+.dpad-center{grid-area:2/2;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px dashed #2c3d43;color:#6d7d88;font-size:11px;background:#0e171d}
+
+.mech{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px}
+.mech button{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-height:66px;padding:12px}
+.mech .name{font-size:14px}
+.mech .desc{font-size:11px;color:var(--muted)}
+.mech .cmd-tag{font-size:10px;color:#536b78;font-family:Consolas,monospace}
+.mech .reset{border-color:#536638;background:#1c281d}
+.mech .reset .name{color:var(--green)}
+.rear{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 14px}
+.rear button{display:flex;align-items:center;justify-content:center;gap:8px}
+.foot-note{font-size:11px;color:var(--muted);padding:0 16px 13px;margin:0}
+
+.sv{padding:13px 16px;border-bottom:1px solid #22323c}
+.sv:last-child{border:0}
+.sv-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.sv-head .nm{font-size:14px}
+.sv-head small{color:var(--muted);font-size:11px}
+.sv-line{display:flex;align-items:center;gap:12px}
+.sv-line input[type=range]{flex:1;accent-color:var(--cyan);height:36px;touch-action:none}
+.sv-val{font-family:Consolas,monospace;color:var(--cyan);min-width:52px;text-align:right}
+.sv-line button{min-height:42px;padding:8px 14px}
+.sv-chips{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.sv-chips button{min-height:34px;font-size:12px;padding:4px 12px;border-radius:9px}
+.sv-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.sv-foot button{min-height:42px}
+
+.raw{display:flex;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.raw select{flex:1 1 100%;min-height:44px;background:#0c151b;color:var(--text);border:1px solid #344751;border-radius:10px;padding:8px}
+.raw input{flex:1;min-width:0;min-height:44px;background:#0c151b;color:var(--text);border:1px solid #344751;border-radius:10px;padding:8px 10px;font-family:Consolas,monospace}
+.raw button{min-height:44px}
+.log-head{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:15px}
+.log-head .mono{color:var(--muted);font-weight:400;font-size:12px}
+.log-actions{display:flex;gap:8px}
+.log-actions button{min-height:36px;font-size:12px;padding:4px 10px}
+.log-list{max-height:56vh;overflow:auto}
+.log-row{padding:8px 14px;border-bottom:1px solid #1c2a32;font-size:12px}
+.log-row .line1{display:flex;gap:8px}
+.log-row .t{color:#617b89;font-family:Consolas,monospace;flex-shrink:0}
+.log-row .k{flex-shrink:0;min-width:30px}
+.k.TX{color:var(--green)}.k.RX{color:var(--cyan)}.k.提示{color:var(--yellow)}.k.错误{color:var(--red)}.k.系统{color:var(--muted)}
+.log-row .p{font-family:Consolas,monospace;color:#c7d8e2;overflow-wrap:anywhere}
+.log-row .d{color:#8199a4;margin-top:2px;overflow-wrap:anywhere}
+.empty-log{padding:26px;text-align:center;color:#627b88;font-size:13px}
+
+.help{padding:16px}
+.help h2{font-size:17px;margin:0 0 10px}
+.help h3{font-size:14px;color:#cedbdc;margin:18px 0 6px}
+.help p,.help li{font-size:13px;color:#9caeb8;line-height:1.9}
+.help ol{padding-left:20px}
+.help code{color:var(--green);background:#1d2921;border-radius:4px;padding:1px 6px;font-family:Consolas,monospace;font-size:12px}
+.help table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+.help td,.help th{border-bottom:1px solid var(--border);padding:8px 6px;text-align:left}
+.help td.hd{color:var(--green);font-family:Consolas,monospace;white-space:nowrap}
+.help .warn{border-left:2px solid var(--yellow);padding:8px 12px;background:#211f18;color:var(--yellow);line-height:1.8;font-size:12px}
+
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);background:#0d1318f0;border-top:1px solid var(--border);padding-bottom:env(safe-area-inset-bottom);backdrop-filter:blur(8px)}
+.tabbar button{border:0;background:transparent;border-radius:0;min-height:56px;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;font-size:11px;color:#8a98a2}
+.tabbar button.active{color:var(--green)}
+.tabbar svg{width:20px;height:20px}
+
+.toast{position:fixed;left:50%;bottom:calc(78px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#273820;color:#d7f9c3;border:1px solid #63844c;border-radius:12px;padding:12px 20px;z-index:100;font-size:13px;max-width:calc(100vw - 32px);box-shadow:0 8px 35px #0008}
+.toast.error{background:#392323;border-color:#9f5f55;color:#ffc3b6}
+</style>
+</head>
+<body>
+<svg style="display:none" aria-hidden="true"><defs>
+<symbol id="i-robot" viewBox="0 0 24 24"><path d="M12 3v3m-2-3h4M5 8h14v12H5zM2 11v6m20-6v6M8 12h1m6 0h1m-7 5h6"/></symbol>
+<symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m6 6 12 12-6 4V2l6 4L6 18"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+<symbol id="i-joint" viewBox="0 0 24 24"><circle cx="7" cy="16" r="3"/><circle cx="16" cy="7" r="3"/><path d="m9 14 5-5M4 21h7m8-17 2-2m-2 8 2 2"/></symbol>
+<symbol id="i-log" viewBox="0 0 24 24"><path d="m4 6 4 4-4 4m7 0h9M3 20h18"/></symbol>
+<symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5c-3-2-6-2-9-1v15c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zM12 5v15"/></symbol>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M6 9v12h12V9m-9 12v-7h6v7"/></symbol>
+<symbol id="i-dump" viewBox="0 0 24 24"><path d="m3 7 12-4 4 11-12 4zM4 21h17m-1-5 2 2m-4-2 2 3"/></symbol>
+<symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 7v5h5M5 11a8 8 0 1 1 1 7"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-9v.2"/></symbol>
+<symbol id="i-drive" viewBox="0 0 24 24"><path d="M12 3l8 5v8l-8 5-8-5V8z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+</defs></svg>
+
+<header class="topbar">
+  <div class="brand"><div class="logo"><svg><use href="#i-robot"/></svg></div>黄连机器人</div>
+  <div class="top-right">
+    <span class="pill" id="topStatus">未连接</span>
+    <button id="demoBtn" type="button">演示</button>
+    <button id="connectBtn" type="button">连接 HC-08</button>
+  </div>
+</header>
+
+<main id="main">
+  <div class="banner" id="envBanner" hidden></div>
+
+  <section id="view-drive" class="view">
+    <section class="card">
+      <div class="stats">
+        <div class="stat"><b>设备连接</b><span id="stDevice">未连接</span></div>
+        <div class="stat"><b>通信校验</b><span id="stVerify">—</span></div>
+        <div class="stat"><b>收发字节</b><span class="mono" id="stTraffic">TX 0 / RX 0</span></div>
+      </div>
+    </section>
+
+    <section class="op" id="opPanel" aria-live="polite">
+      <div class="op-title" id="opTitle">准备就绪，等待连接</div>
+      <div class="op-desc" id="opDesc">点右上角「连接 HC-08」，从设备选择器中选中模块，然后先做一次「测试通信」。</div>
+      <div class="op-actions">
+        <button id="testBtn" class="command" type="button" data-code="255" disabled>测试通信</button>
+        <button id="completeBtn" type="button" hidden>动作已完成，继续</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">行走控制<small>单步执行</small></div>
+      <div class="dpad" aria-label="方向控制">
+        <button class="dir up command" type="button" data-code="1" disabled aria-label="前进"><svg><use href="#i-arrow"/></svg>前进</button>
+        <button class="dir left command" type="button" data-code="3" disabled aria-label="左转"><svg style="transform:rotate(-90deg)"><use href="#i-arrow"/></svg>左转</button>
+        <div class="dpad-center">单步</div>
+        <button class="dir right command" type="button" data-code="4" disabled aria-label="右转"><svg style="transform:rotate(90deg)"><use href="#i-arrow"/></svg>右转</button>
+        <button class="dir down command" type="button" data-code="2" disabled aria-label="后退"><svg style="transform:rotate(180deg)"><use href="#i-arrow"/></svg>后退</button>
+      </div>
+      <p class="foot-note">每次点击执行一段固定行程：前进 / 后退 1000 脉冲，左右转 3200 脉冲。固件无连续行走与停止指令。</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">机构控制<small>6 项动作</small></div>
+      <div class="mech">
+        <button class="command" type="button" data-code="5" disabled><span class="name">前驱归位</span><span class="desc">回到预设位置</span><span class="cmd-tag">05</span></button>
+        <button class="command" type="button" data-code="6" disabled><span class="name">倒料</span><span class="desc">切换倒料位置</span><span class="cmd-tag">06</span></button>
+        <button class="command" type="button" data-code="7" disabled><span class="name">关节动作</span><span class="desc">舵机 3 / 4 联动</span><span class="cmd-tag">07</span></button>
+        <button class="command reset" type="button" data-code="8" disabled><span class="name">整机复位</span><span class="desc">固件复位序列</span><span class="cmd-tag">08</span></button>
+      </div>
+      <div class="rear">
+        <button class="command" type="button" data-code="26" disabled>后板上升 <span class="cmd-tag">1A</span></button>
+        <button class="command" type="button" data-code="27" disabled>后板下降 <span class="cmd-tag">1B</span></button>
+      </div>
+      <p class="foot-note">执行期间其余按钮锁定；观察到机构完成后再点「动作已完成，继续」。</p>
+    </section>
+  </section>
+
+  <section id="view-servo" class="view" hidden>
+    <section class="card">
+      <div class="card-head">舵机角度调试<small>FF AA 号 角度 00 FE</small></div>
+      <div id="servoRows"></div>
+      <div class="sv-foot"><span id="servoResult">尚未发送</span><button id="servoSendAll" type="button" disabled>依次发送全部</button></div>
+    </section>
+    <p class="foot-note" style="padding:0 4px">角度字节 = 十进制角度本身；回传形如 S3=70。每条之间建议间隔 1 秒。</p>
+  </section>
+
+  <section id="view-log" class="view" hidden>
+    <section class="card">
+      <div class="log-head">通信日志<span class="mono" id="logCount">0 条</span>
+        <div class="log-actions"><button id="logExport" type="button">导出</button><button id="logClear" type="button">清空</button></div>
+      </div>
+      <div class="raw">
+        <select id="rawPreset" aria-label="快捷指令"><option value="">快捷指令…</option></select>
+        <input id="rawInput" class="mono" spellcheck="false" placeholder="HEX 如 FF 01 01 01 FF FE">
+        <button id="rawSendBtn" type="button" disabled>发送</button>
+      </div>
+      <div class="log-list" id="logList"><div class="empty-log">暂无通信记录。</div></div>
+    </section>
+    <p class="foot-note" style="padding:0 4px">最多保留 200 条；演示数据带 [模拟] 前缀。日志仅保存在本页。</p>
+  </section>
+
+  <section id="view-help" class="view" hidden>
+    <section class="card help">
+      <h2>手机遥控使用说明</h2>
+      <h3>一、HC-08 接线（与 ST-Link / USB-TTL 共存）</h3>
+      <table>
+        <tr><th>HC-08 引脚</th><th>接 STM32</th><th>说明</th></tr>
+        <tr><td>VCC</td><td>3.3V 或 5V</td><td>按模块丝印供电，与车上共地</td></tr>
+        <tr><td>GND</td><td>GND</td><td>必须共地</td></tr>
+        <tr><td>TXD</td><td>PA10（RX）</td><td>模块发 → 单片机收</td></tr>
+        <tr><td>RXD</td><td>PA9（TX）</td><td>单片机发 → 模块收</td></tr>
+      </table>
+      <p>HC-08 出厂 9600 / 8N1，与固件一致，<b>无需任何 AT 配置</b>。固件协议零改动，与 USB-TTL 控制完全等价。</p>
+
+      <h3>二、手机怎么打开本页（必须安全上下文）</h3>
+      <ol>
+        <li><b>局域网联调（最快）</b>：电脑双击「启动手机联调.cmd」，手机连同一 WiFi，在手机 Chrome 打开 <code>http://电脑IP:8765/mobile.html</code>。首次需在手机 Chrome 地址栏输入 <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code>，填入该网址并启用，重启浏览器。</li>
+        <li><b>USB 转发（免白名单）</b>：电脑执行 <code>adb reverse tcp:8765 tcp:8765</code>，手机访问 <code>http://localhost:8765/mobile.html</code>。</li>
+        <li><b>GitHub Pages（正式发布）</b>：把本文件上传到 GitHub 仓库并开启 Pages，手机访问 https 地址，无需任何白名单。</li>
+      </ol>
+      <p class="warn">iPhone 的 Safari 不支持 Web 蓝牙，本页在 iOS 上只能用「演示」模式。iPhone 用户请改用支持 BLE 的串口 App（如 nRF Connect 手动发 HEX），或考虑 ESP32 方案。</p>
+
+      <h3>三、操作流程</h3>
+      <ol>
+        <li>小车上电，HC-08 LED 闪烁（表示未连接）。</li>
+        <li>点「连接 HC-08」→ 在弹出的选择器里选 HC-08（或你改过名字的模块）。</li>
+        <li>点「测试通信」，收到 <code>OK</code> 表示链路通。</li>
+        <li>点方向 / 机构按钮执行一次动作；观察到动作完成后再点「动作已完成，继续」。</li>
+      </ol>
+
+      <h3>四、指令协议（与桌面控制台一致）</h3>
+      <table id="protocolTable"><tr><th>功能</th><th>帧（HEX）</th><th>回传</th></tr></table>
+      <p>每帧 6 字节 <code>FF 01 01 01 CMD FE</code>；舵机调试帧 <code>FF AA 舵机号 角度 00 FE</code>。</p>
+
+      <h3>五、常见问题</h3>
+      <ul>
+        <li><b>搜不到 HC-08</b>：模块未上电、已被其他手机连着（HC-08 单连接），或距离太远。</li>
+        <li><b>连接后发指令没反应</b>：先点「测试通信」看是否收到 OK；检查 TXD/RXD 是否接反；若模块波特率被人改过，用 AT 指令恢复 9600。</li>
+        <li><b>发送失败 / 频繁断开</b>：离近一点、重新连接；手机省电策略会杀后台蓝牙，控制时保持本页在前台（页面会自动申请屏幕常亮）。</li>
+        <li><b>回传是什么意思</b>：ForWard 等只表示「指令已识别」，不代表动作完成；机构动作完全没有回传。</li>
+      </ul>
+      <p class="warn">固件没有急停指令。断开蓝牙或关闭页面都不会停止已开始的动作。</p>
+    </section>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="主导航">
+  <button class="active" type="button" data-view="drive"><svg><use href="#i-drive"/></svg>控制</button>
+  <button type="button" data-view="servo"><svg><use href="#i-joint"/></svg>舵机</button>
+  <button type="button" data-view="log"><svg><use href="#i-log"/></svg>日志</button>
+  <button type="button" data-view="help"><svg><use href="#i-book"/></svg>帮助</button>
+</nav>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+'use strict';
+/* ================= 协议层（与桌面控制台保持一致） ================= */
+const COMMANDS=Object.freeze({
+  1:{name:'前进',ack:'ForWard',detail:'双轮前进 1000 脉冲'},2:{name:'后退',ack:'Backward',detail:'双轮后退 1000 脉冲'},
+  3:{name:'左转',ack:'TurnLeft',detail:'双轮转向 3200 脉冲'},4:{name:'右转',ack:'TurnRight',detail:'双轮转向 3200 脉冲'},
+  5:{name:'前驱归位',detail:'舵机 2 → 60°；舵机 1 → 110°'},6:{name:'倒料',detail:'舵机 2 → 130°；舵机 1 → 60°'},
+  7:{name:'关节动作',detail:'舵机 3 → 30°；舵机 4 → 150°'},8:{name:'整机复位',detail:'复位序列，最终 2/1 → 0°/170°'},
+  26:{name:'后板上升',detail:'PA11 置高约 5 秒'},27:{name:'后板下降',detail:'PA12 置高约 5 秒'},
+  255:{name:'测试通信',ack:'OK',detail:'通信探测，不产生机构动作'}
+});
+const SERVO_DEF=[
+  {id:1,name:'1 号 右前驱',pin:'PA0',def:80,presets:[80,110,60]},
+  {id:2,name:'2 号 左前驱',pin:'PA1',def:15,presets:[15,60,130]},
+  {id:3,name:'3 号 左关节',pin:'PA2',def:70,presets:[70,30,90]},
+  {id:4,name:'4 号 右关节',pin:'PA3',def:110,presets:[110,150,90]}
+];
+const frame=code=>new Uint8Array([255,1,1,1,code,254]);
+const angleFrame=(id,ang)=>new Uint8Array([0xFF,0xAA,id,ang,0x00,0xFE]);
+const hex=bytes=>Array.from(bytes,x=>x.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ================= 全局状态 ================= */
+const state={
+  mode:'offline',            /* offline | connecting | real | demo | closing */
+  pending:null,ackBuffer:'',verified:false,
+  tx:0,rx:0,logs:[],epoch:0,timers:new Set(),closing:false,
+  portLabel:'',view:'drive',
+  ble:{device:null,server:null,writeChar:null,notifyChar:null}
+};
+let toastTimer=0,writeChain=Promise.resolve(),wakeLock=null;
+
+const $=id=>document.getElementById(id);
+const bleAvailable=('bluetooth' in navigator)&&isSecureContext;
+/* 常见 BLE 透传服务 UUID：HC-08/HM-10 系（FFE0）、JDY 系（FFF0）、AT-09 变体、Nordic UART */
+const CANDIDATE_SERVICES=[
+  '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '0000fff0-0000-1000-8000-00805f9b34fb',
+  '0000ffe5-0000-1000-8000-00805f9b34fb',
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+];
+
+/* ================= 基础工具 ================= */
+function toast(message,error=false){$('toast').textContent=message;$('toast').classList.toggle('error',error);$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4000)}
+function later(fn,ms){const id=setTimeout(()=>{state.timers.delete(id);fn()},ms);state.timers.add(id);return id}
+function clearTimers(){state.timers.forEach(clearTimeout);state.timers.clear()}
+function log(kind,payload,detail,sim=state.mode==='demo'){
+  state.logs.push({time:new Date().toLocaleTimeString('zh-CN',{hour12:false}),kind,payload,detail:sim?'[模拟] '+detail:detail});
+  if(state.logs.length>200)state.logs.shift();
+  renderLogs();
+}
+function renderLogs(){
+  const box=$('logList');box.replaceChildren();
+  if(!state.logs.length){const e=document.createElement('div');e.className='empty-log';e.textContent='暂无通信记录。';box.append(e)}
+  else for(const item of state.logs.slice(-60)){
+    const row=document.createElement('div');row.className='log-row';
+    const l1=document.createElement('div');l1.className='line1';
+    for(const [text,cls] of [[item.time,'t'],[item.kind,'k '+item.kind],[item.payload,'p']]){const s=document.createElement('span');s.className=cls;s.textContent=text;l1.append(s)}
+    const d=document.createElement('div');d.className='d';d.textContent=item.detail;
+    row.append(l1,d);box.append(row);
+  }
+  box.scrollTop=box.scrollHeight;
+  $('logCount').textContent=state.logs.length+' 条';
+  $('stTraffic').textContent='TX '+state.tx+' / RX '+state.rx;
+}
+function setOp(title,desc){state.opTitle=title;state.opDesc=desc;render()}
+
+function render(){
+  const real=state.mode==='real',demo=state.mode==='demo',active=real||demo,busy=!!state.pending;
+  const connecting=state.mode==='connecting'||state.closing;
+  $('connectBtn').disabled=connecting;
+  $('connectBtn').textContent=state.closing?'断开中…':state.mode==='connecting'?'连接中…':real?'断开蓝牙':'连接 HC-08';
+  $('demoBtn').disabled=real||connecting;
+  $('demoBtn').textContent=demo?'退出演示':'演示';
+  const pill=$('topStatus');pill.className='pill'+(active?' green':'');
+  pill.textContent=demo?'演示模式':real?state.portLabel:connecting?'连接中':'未连接';
+  $('stDevice').textContent=real?state.portLabel:demo?'模拟设备':connecting?'…':'未连接';
+  $('stVerify').textContent=state.verified?(demo?'模拟通过':'OK'):(active?'未测试':'—');
+  $('stVerify').style.color=state.verified?'var(--green)':'';
+  $('stTraffic').textContent='TX '+state.tx+' / RX '+state.rx;
+  document.querySelectorAll('.command').forEach(b=>b.disabled=!active||busy||state.closing);
+  document.querySelectorAll('#servoRows button[data-send]').forEach(b=>b.disabled=!active||connecting);
+  $('servoSendAll').disabled=!active||connecting;
+  $('rawSendBtn').disabled=!active||busy||connecting;
+  $('opTitle').textContent=state.opTitle;$('opDesc').textContent=state.opDesc;
+  $('opPanel').classList.toggle('busy',busy);
+  $('testBtn').hidden=busy;
+  $('completeBtn').hidden=!busy||state.pending?.code===255;
+  $('completeBtn').disabled=!!state.pending&&(state.pending.sending||Date.now()<state.pending.releaseAfter);
+  $('completeBtn').textContent=demo?'演示动作运行中…':'动作已完成，继续';
+}
+function switchView(view){
+  if(!document.getElementById('view-'+view))return;
+  state.view=view;
+  document.querySelectorAll('.view').forEach(e=>e.hidden=e.id!=='view-'+view);
+  document.querySelectorAll('.tabbar [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+  window.scrollTo(0,0);
+}
+function resetSession(){clearTimers();state.pending=null;state.ackBuffer='';state.verified=false;state.epoch++}
+
+/* ================= Web 蓝牙传输层 ================= */
+async function connectBle(){
+  if(state.mode==='real'){disconnectBle('已手动断开蓝牙；此操作不会中止固件已开始的动作。');return}
+  if(state.mode==='connecting'||state.closing)return;
+  if(state.mode==='demo')demoToggle();
+  if(!bleAvailable){toast('当前浏览器不支持 Web 蓝牙或页面不在安全上下文，见「帮助」',true);return}
+  state.mode='connecting';render();
+  let device=null,server=null;
+  try{
+    /* requestDevice 必须在用户手势内第一个 await 之前调用 */
+    device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:CANDIDATE_SERVICES});
+    let lastError=null;
+    for(let i=0;i<3&&!device.gatt.connected;i++){          /* Android 首连偶发失败，重试 */
+      try{server=await device.gatt.connect()}
+      catch(e){lastError=e;server=null;await sleep(350)}
+    }
+    if(!server)throw lastError||new Error('GATT 连接失败');
+    const {writeChar,notifyChar,serviceName}=await discoverChars(server);
+    if(!writeChar)throw new Error('未找到可写特征，模块可能不是串口透传型');
+    if(notifyChar){
+      await notifyChar.startNotifications();
+      notifyChar.addEventListener('characteristicvaluechanged',onNotify);
+    }
+    device.addEventListener('gattserverdisconnected',onGattDisconnected);
+    resetSession();
+    state.ble={device,server,writeChar,notifyChar};
+    state.mode='real';state.portLabel=device.name||'BLE 设备';
+    log('系统','BLE OPEN',state.portLabel+' · 服务 '+serviceName+(notifyChar?' · 通知已开启':' · 无通知特征'));
+    setOp('蓝牙已连接，建议先测试通信','连接成功不代表固件已响应。点「测试通信」收到 OK 后再操作。');
+    toast('已连接 '+state.portLabel);
+    requestWake();
+  }catch(error){
+    if(device&&device.gatt.connected){try{device.gatt.disconnect()}catch{}}
+    state.mode='offline';
+    const msg=error.name==='NotFoundError'?'已取消设备选择':
+              error.name==='SecurityError'?'浏览器阻止了蓝牙权限：页面需 HTTPS 或 localhost 打开':
+              '蓝牙连接失败：'+error.message;
+    log('提示','BLE',msg,false);toast(msg,true);render();
+  }
+}
+async function discoverChars(server){
+  const services=await server.getPrimaryServices();
+  let writeChar=null,notifyChar=null,serviceName='';
+  for(const svc of services){
+    let chars=[];
+    try{chars=await svc.getCharacteristics()}catch{continue}
+    for(const ch of chars){
+      const p=ch.properties;
+      if(!notifyChar&&p.notify){notifyChar=ch;serviceName=serviceName||svc.uuid.slice(4,8).toUpperCase()}
+      if(!writeChar&&(p.write||p.writeWithoutResponse))writeChar=ch;
+    }
+    if(!serviceName&&(writeChar||notifyChar))serviceName=svc.uuid.slice(4,8).toUpperCase();
+  }
+  return {writeChar,notifyChar,serviceName};
+}
+function onNotify(event){
+  const dv=event.target.value;
+  const bytes=new Uint8Array(dv.byteLength);
+  for(let i=0;i<bytes.length;i++)bytes[i]=dv.getUint8(i);
+  readBytes(bytes);
+}
+function bleWrite(bytes){
+  const ch=state.ble.writeChar;
+  if(!ch)throw new Error('蓝牙未连接');
+  const task=writeChain.then(async()=>{
+    if(ch.properties.write)await ch.writeValue(bytes);
+    else await ch.writeValueWithoutResponse(bytes);
+  });
+  writeChain=task.catch(()=>{});
+  return task;
+}
+async function writeSerial(bytes){                 /* BLE 默认 MTU 20 字节负载，分包发送 */
+  for(let i=0;i<bytes.length;i+=20){
+    await bleWrite(bytes.slice(i,i+20));
+    if(i+20<bytes.length)await sleep(40);
+  }
+}
+async function disconnectBle(message){
+  if(state.closing)return;
+  state.closing=true;state.mode='closing';render();clearTimers();
+  const device=state.ble.device;
+  try{if(device&&device.gatt.connected)device.gatt.disconnect()}
+  catch(e){log('提示','CLOSE',e.message,false)}
+  state.ble={device:null,server:null,writeChar:null,notifyChar:null};
+  writeChain=Promise.resolve();
+  resetSession();state.closing=false;state.mode='offline';
+  log('系统','BLE CLOSED',message,false);
+  setOp('蓝牙已断开',message);toast(message);
+  releaseWake();
+}
+function onGattDisconnected(){
+  if(state.mode!=='real'||state.closing)return;
+  state.ble={device:null,server:null,writeChar:null,notifyChar:null};
+  writeChain=Promise.resolve();
+  resetSession();state.mode='offline';
+  log('系统','BLE LOST','蓝牙连接中断；断开不代表机器人已停止。');
+  setOp('蓝牙连接中断','重新连接后可继续；已开始的动作仍可能正在执行。');
+  toast('蓝牙连接中断',true);
+  releaseWake();render();
+}
+
+/* ================= 指令层（回传解析 / 动作锁，与桌面一致） ================= */
+function readBytes(bytes){
+  state.rx+=bytes.length;
+  const ascii=Array.from(bytes,b=>b>=32&&b<127?String.fromCharCode(b):'.').join('');
+  log('RX',hex(bytes),ascii||'二进制数据');
+  state.ackBuffer=(state.ackBuffer+Array.from(bytes,b=>String.fromCharCode(b)).join('')).slice(-512);
+  const tokens=['ForWard','Backward','TurnLeft','TurnRight','OK'];
+  while(true){
+    let found=null,index=Infinity;
+    for(const token of tokens){const i=state.ackBuffer.indexOf(token);if(i>=0&&i<index){index=i;found=token}}
+    if(!found)break;
+    state.ackBuffer=state.ackBuffer.slice(index+found.length);
+    onAck(found);
+  }
+  render();
+}
+function onAck(ack){
+  const p=state.pending;
+  if(ack==='OK'&&p?.code===255){
+    state.verified=true;state.pending=null;
+    setOp(state.mode==='demo'?'模拟通信校验通过':'通信校验通过','已收到 OK；固件接收链路正常，可以开始操作。');
+    log('提示','ACK OK','测试指令已被固件识别');return;
+  }
+  if(p&&COMMANDS[p.code]?.ack===ack){
+    p.ack=true;
+    setOp(COMMANDS[p.code].name+' · 固件已识别','回传 '+ack+' 先于电机动作。请观察动作完成，再点继续。');
+  }
+}
+async function sendCommand(code){
+  if(!COMMANDS[code]||state.pending||state.closing||!['real','demo'].includes(state.mode))return;
+  const command=COMMANDS[code],epoch=state.epoch,sim=state.mode==='demo';
+  const minWait=code===26||code===27?5500:code===255?0:800;
+  const pending={code,sending:true,ack:false,releaseAfter:Date.now()+minWait};
+  state.pending=pending;
+  setOp(command.name+' · 正在发送',sim?'模拟发送 6 字节指令。':'正在通过蓝牙写入 6 字节指令。');
+  try{
+    if(!sim){await writeSerial(frame(code));if(navigator.vibrate)navigator.vibrate(12)}
+    if(epoch!==state.epoch)return;
+    pending.sending=false;
+    state.tx+=6;log('TX',hex(frame(code)),command.name+' · '+(sim?'模拟发送':'已写入蓝牙'));
+    if(state.pending===pending){
+      if(code===255)setOp('测试通信 · 等待 OK','已发送测试帧，等待固件回应（3 秒超时）。');
+      else if(!pending.ack)setOp(command.name+' · 已发送',command.ack?'等待固件识别回传；请观察实际动作。':'此机构动作没有固件回传。请观察实际动作完成后继续。');
+    }
+    later(()=>{if(state.pending===pending)render()},minWait+30);
+    if(command.ack)later(()=>{
+      if(state.pending!==pending||pending.ack)return;
+      if(code===255){state.pending=null;setOp('通信测试超时','3 秒内未收到 OK。检查模块供电、TXD/RXD 交叉接线与固件。');toast('未收到 OK，见「帮助」排查',true)}
+      else{log('提示','NO ACK',command.name+'：未收到预期回传，设备仍可能已执行，请现场确认');setOp(command.name+' · 尚未收到回传','设备仍可能正在动作。请观察结束后再点继续。')}
+    },3000);
+    if(sim){
+      if(command.ack)later(()=>readBytes(new TextEncoder().encode(command.ack)),280);
+      if(code!==255)later(()=>{
+        if(state.pending===pending){state.pending=null;log('提示','DEMO DONE',command.name+'模拟动作结束');setOp('演示动作已结束','实际设备的动作结束需由操作者现场确认。')}
+      },Math.max(minWait+80,1250));
+    }
+  }catch(error){
+    if(epoch!==state.epoch)return;
+    log('错误','WRITE ERROR',error.message);
+    toast('发送失败：'+error.message,true);
+    await disconnectBle('发送失败，蓝牙已断开；已下发的动作仍可能执行。');
+  }
+}
+function releaseAction(){
+  if(!state.pending)return;
+  if(state.pending.sending||Date.now()<state.pending.releaseAfter)return;
+  const name=state.pending.name||COMMANDS[state.pending.code]?.name||'动作';
+  state.pending=null;
+  log('提示','READY',name+'：操作者确认动作结束；未收到位置反馈');
+  setOp('可以继续操作','选择下一项动作。当前固件没有位置或动作完成反馈。');
+}
+function demoToggle(){
+  if(state.mode==='real'||state.mode==='connecting'||state.closing)return;
+  if(state.mode==='demo'){resetSession();state.mode='offline';log('系统','DEMO OFF','已退出演示',true);setOp('准备就绪，等待连接','点「连接 HC-08」连接模块，或点「演示」体验流程。');return}
+  resetSession();state.mode='demo';
+  log('系统','DEMO ON','进入演示模式，不申请蓝牙，不发送硬件数据',true);
+  setOp('演示模式已开启','所有回传均为模拟数据。点按钮体验操作流程。');
+  toast('演示模式：不会连接或控制任何硬件');
+}
+
+/* ================= 舵机调试 ================= */
+function buildServoRows(){
+  const box=$('servoRows');box.replaceChildren();
+  for(const s of SERVO_DEF){
+    const row=document.createElement('div');row.className='sv';
+    const head=document.createElement('div');head.className='sv-head';
+    const nm=document.createElement('span');nm.className='nm';nm.textContent=s.name;
+    const pin=document.createElement('small');pin.textContent=s.pin+' · TIM2';
+    head.append(nm,pin);
+    const line=document.createElement('div');line.className='sv-line';
+    const slider=document.createElement('input');
+    slider.type='range';slider.min='0';slider.max='180';slider.value=String(s.def);
+    slider.setAttribute('aria-label',s.name+' 角度');
+    const val=document.createElement('span');val.className='sv-val';val.textContent=s.def+'°';
+    const btn=document.createElement('button');btn.type='button';btn.className='primary';btn.textContent='发送';btn.dataset.send=String(s.id);
+    line.append(slider,val,btn);
+    const chips=document.createElement('div');chips.className='sv-chips';
+    for(const a of s.presets){const c=document.createElement('button');c.type='button';c.textContent=a+'°';c.dataset.angle=String(a);chips.append(c)}
+    chips.addEventListener('click',e=>{const b=e.target.closest('button[data-angle]');if(!b)return;slider.value=b.dataset.angle;val.textContent=b.dataset.angle+'°'});
+    slider.addEventListener('input',()=>val.textContent=slider.value+'°');
+    btn.addEventListener('click',()=>sendAngle(s.id,Number(slider.value)));
+    row.append(head,line,chips);box.append(row);
+  }
+}
+async function sendAngle(id,ang){
+  if(!['real','demo'].includes(state.mode)){$('servoResult').textContent='请先连接蓝牙或进入演示模式';toast('请先连接蓝牙',true);return}
+  if(ang<0)ang=0;if(ang>180)ang=180;
+  const bytes=angleFrame(id,ang),txt=hex(bytes);
+  try{
+    if(state.mode==='real'){await writeSerial(bytes);state.tx+=bytes.length;log('TX',txt,'舵机 '+id+' → '+ang+'°（调试指令）')}
+    else log('TX',txt,'舵机 '+id+' → '+ang+'°（模拟，未写入硬件）');
+    $('servoResult').textContent='已发送：舵机 '+id+' → '+ang+'° · '+txt;
+  }catch(error){
+    log('错误','WRITE ERROR',error.message);
+    $('servoResult').textContent='发送失败：'+error.message;
+    toast('发送失败：'+error.message,true);
+  }
+}
+
+/* ================= 自定义 HEX 发送 ================= */
+function parseHex(text){
+  if(!text.trim())throw new Error('请输入 HEX 命令');
+  const values=[];
+  for(const token of text.trim().split(/[\s,;]+/)){
+    const v=token.replace(/^0x/i,'');
+    if(!/^(?:[0-9a-fA-F]{2})+$/.test(v))throw new Error('HEX 必须是完整字节，例如 FF 01 或 FF01');
+    for(let i=0;i<v.length;i+=2)values.push(parseInt(v.slice(i,i+2),16));
+  }
+  if(values.length>1024)throw new Error('每次最多 1024 字节');
+  return new Uint8Array(values);
+}
+async function sendRaw(){
+  if(state.pending||state.closing||!['real','demo'].includes(state.mode))return;
+  let bytes;
+  try{bytes=parseHex($('rawInput').value)}
+  catch(error){toast(error.message,true);return}
+  if(bytes.length===6&&bytes[0]===255&&bytes[1]===1&&bytes[2]===1&&bytes[3]===1&&bytes[5]===254&&COMMANDS[bytes[4]]){
+    toast('识别为标准指令：'+COMMANDS[bytes[4]].name);
+    await sendCommand(bytes[4]);return;
+  }
+  const epoch=state.epoch,sim=state.mode==='demo';
+  const pending={code:'raw',name:'自定义数据',sending:true,releaseAfter:Date.now()+800};
+  state.pending=pending;
+  setOp('自定义命令 · 正在发送','正在写入 '+bytes.length+' 字节。');
+  try{
+    if(!sim)await writeSerial(bytes);
+    if(epoch!==state.epoch)return;
+    pending.sending=false;state.tx+=bytes.length;
+    log('TX',hex(bytes),'自定义命令 · '+bytes.length+' 字节');
+    setOp('自定义命令 · 已发送','固件对非标准帧没有回传，以实际动作为准。');
+    later(()=>{if(state.pending===pending){state.pending=null;render();setOp('可以继续操作','自定义命令已发送。')}},900);
+    if(sim)later(()=>{if(state.pending===pending){state.pending=null;setOp('演示发送已结束','没有向硬件写入数据。')}},1100);
+  }catch(error){
+    if(epoch!==state.epoch)return;
+    log('错误','WRITE ERROR',error.message);toast('发送失败：'+error.message,true);
+    await disconnectBle('发送失败，蓝牙已断开。');
+  }
+}
+
+/* ================= 屏幕常亮 / 息屏恢复 ================= */
+async function requestWake(){try{wakeLock=await navigator.wakeLock?.request('screen');wakeLock?.addEventListener('release',()=>{wakeLock=null})}catch{}}
+function releaseWake(){try{wakeLock?.release()}catch{}wakeLock=null}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.mode==='real')requestWake()});
+
+/* ================= 初始化 ================= */
+document.querySelectorAll('.command').forEach(b=>b.addEventListener('click',()=>sendCommand(Number(b.dataset.code))));
+document.querySelectorAll('.tabbar [data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
+$('connectBtn').addEventListener('click',connectBle);
+$('demoBtn').addEventListener('click',demoToggle);
+$('completeBtn').addEventListener('click',releaseAction);
+$('servoSendAll').addEventListener('click',async()=>{
+  for(const s of SERVO_DEF){
+    const row=$('servoRows').children[SERVO_DEF.indexOf(s)];
+    const ang=Number(row.querySelector('input[type=range]').value);
+    await sendAngle(s.id,ang);
+    await sleep(1000);
+  }
+  $('servoResult').textContent='4 条调试指令已依次发送完毕';
+});
+$('rawSendBtn').addEventListener('click',sendRaw);
+$('rawPreset').addEventListener('change',()=>{const code=Number($('rawPreset').value);if(COMMANDS[code])$('rawInput').value=hex(frame(code))});
+$('logClear').addEventListener('click',()=>{state.logs=[];renderLogs();toast('日志已清空')});
+$('logExport').addEventListener('click',()=>{
+  const text=['黄连机器人 · 手机通信日志','导出时间：'+new Date().toLocaleString('zh-CN'),'',...state.logs.map(r=>`${r.time}\t${r.kind}\t${r.payload}\t${r.detail}`)].join('\r\n');
+  const url=URL.createObjectURL(new Blob(['\uFEFF',text],{type:'text/plain;charset=utf-8'}));
+  const a=document.createElement('a');a.href=url;a.download='黄连机器人-手机日志-'+new Date().toISOString().slice(0,10)+'.txt';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+for(const [code,command] of Object.entries(COMMANDS)){
+  const option=document.createElement('option');option.value=code;option.textContent=command.name+' · '+hex(frame(Number(code)));
+  $('rawPreset').append(option);
+  const tr=document.createElement('tr');
+  for(const t of [command.name,hex(frame(Number(code))),command.ack||'无']){const td=document.createElement('td');td.textContent=t;tr.append(td)}
+  $('protocolTable').append(tr);
+}
+if(!bleAvailable){
+  const banner=$('envBanner');
+  banner.textContent=('bluetooth' in navigator)
+    ?'蓝牙功能被限制：本页需通过 HTTPS 或 localhost 打开。局域网 IP 访问需在手机 Chrome 的 chrome://flags 中把它加入"不安全源视为安全"白名单，详见「帮助」。'
+    :'当前浏览器不支持 Web 蓝牙（iOS Safari / 桌面 Firefox 均不支持）。请使用安卓 Chrome / Edge 打开本页；现在可先点「演示」体验流程。';
+  banner.hidden=false;
+}
+window.addEventListener('beforeunload',e=>{if(state.mode==='real'||state.pending){e.preventDefault();e.returnValue=''}});
+buildServoRows();renderLogs();render();
+</script>
+</body>
+</html>
