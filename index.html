@@ -215,7 +215,7 @@ main{max-width:560px;margin:0 auto;padding:calc(66px + env(safe-area-inset-top))
         <button class="command" type="button" data-code="10" disabled><span class="name">前驱复位</span><span class="desc">1→81° 2→8° 回初始</span><span class="cmd-tag">0A</span></button>
         <button class="command" type="button" data-code="6" disabled><span class="name">倒料</span><span class="desc">2→130° 1→60°</span><span class="cmd-tag">06</span></button>
         <button class="command" type="button" data-code="7" disabled><span class="name">关节抬起</span><span class="desc">3→90° 4→90° 抬起</span><span class="cmd-tag">07</span></button>
-        <button class="command" type="button" data-code="9" disabled><span class="name">关节复位</span><span class="desc">3→60° 4→125° 归位</span><span class="cmd-tag">09</span></button>
+        <button class="command" type="button" data-code="9" disabled><span class="name">关节复位</span><span class="desc">3→59° 4→124° 归位</span><span class="cmd-tag">09</span></button>
         <button class="command reset" type="button" data-code="8" disabled><span class="name">整机复位</span><span class="desc">回上电初始位</span><span class="cmd-tag">08</span></button>
       </div>
       <div class="rear">
@@ -312,16 +312,16 @@ const COMMANDS=Object.freeze({
   3:{name:'左转',ack:'TurnLeft',detail:'双轮转向 3200 脉冲'},4:{name:'右转',ack:'TurnRight',detail:'双轮转向 3200 脉冲'},
   5:{name:'前驱抬起',detail:'1 号右前驱 → 51°；2 号左前驱 → 41°，两侧同步抬起'},10:{name:'前驱复位',detail:'1 号右前驱 → 81°；2 号左前驱 → 8°，回上电初始位'},
   6:{name:'倒料',detail:'2 号左前驱 → 130°；1 号右前驱 → 60°'},
-  7:{name:'关节抬起',detail:'3 号左关节 → 90°；4 号右关节 → 90°，两侧同步抬起'},8:{name:'整机复位',detail:'回到上电初始：关节 60°/125°；前驱 81°/8°'},
-  9:{name:'关节复位',detail:'3 号左关节 → 60°；4 号右关节 → 125°，镜像同时归位'},
+  7:{name:'关节抬起',detail:'3 号左关节 → 90°；4 号右关节 → 90°，两侧同步抬起'},8:{name:'整机复位',detail:'回到上电初始：关节 59°/124°；前驱 81°/8°'},
+  9:{name:'关节复位',detail:'3 号左关节 → 59°；4 号右关节 → 124°，镜像同时归位'},
   26:{name:'后板上升',detail:'PA11 置高约 5 秒'},27:{name:'后板下降',detail:'PA12 置高约 5 秒'},
   255:{name:'测试通信',ack:'OK',detail:'通信探测，不产生机构动作'}
 });
 const SERVO_DEF=[
   {id:1,name:'1 号 右前驱',pin:'PA0',def:81, presets:[81,51,60]},
   {id:2,name:'2 号 左前驱',pin:'PA1',def:8,  presets:[8,41,130]},
-  {id:3,name:'3 号 左关节',pin:'PA2',def:60, presets:[60,90]},
-  {id:4,name:'4 号 右关节',pin:'PA3',def:125,presets:[125,90]}
+  {id:3,name:'3 号 左关节',pin:'PA2',def:59, presets:[59,90]},
+  {id:4,name:'4 号 右关节',pin:'PA3',def:124,presets:[124,90]}
 ];
 const frame=code=>new Uint8Array([255,1,1,1,code,254]);
 const angleFrame=(id,ang)=>new Uint8Array([0xFF,0xAA,id,ang,0x00,0xFE]);
