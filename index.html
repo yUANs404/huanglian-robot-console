@@ -448,7 +448,7 @@ async function connectBle(){
 }
 async function discoverChars(server){
   const services=await server.getPrimaryServices();
-  let writeChar=null,notifyChar=null,serviceName='',map=[];
+  let writeChar=null,notifyChar=null,serviceName='',map=[],bestScore=-1;
   for(const svc of services){
     let chars=[];
     try{chars=await svc.getCharacteristics()}catch{continue}
@@ -456,10 +456,13 @@ async function discoverChars(server){
       const p=ch.properties;
       map.push(svc.uuid.slice(4,8).toUpperCase()+'-'+ch.uuid.slice(4,8).toUpperCase()+(p.write?'[写]':'')+(p.writeWithoutResponse?'[无响应写]':'')+(p.notify?'[通知]':''));
       if(!notifyChar&&p.notify){notifyChar=ch;serviceName=serviceName||svc.uuid.slice(4,8).toUpperCase()}
-      if(!writeChar&&(p.write||p.writeWithoutResponse))writeChar=ch;
+      /* 打分选写特征：写+通知同体的最可能是串口透传口 */
+      const score=(p.write?2:0)+(p.writeWithoutResponse?1:0)+(p.notify?2:0);
+      if((p.write||p.writeWithoutResponse)&&score>bestScore){bestScore=score;writeChar=ch}
     }
     if(!serviceName&&(writeChar||notifyChar))serviceName=svc.uuid.slice(4,8).toUpperCase();
   }
+  if(writeChar&&writeChar.properties.notify)notifyChar=writeChar;
   return {writeChar,notifyChar,serviceName,map};
 }
 function onNotify(event){
@@ -473,10 +476,13 @@ function bleWrite(bytes){
   if(!ch)throw new Error('蓝牙未连接');
   const p=ch.properties;
   const task=writeChain.then(async()=>{
-    const wnr=async()=>{if(!p.writeWithoutResponse)throw new Error('特征不支持无响应写');await ch.writeValueWithoutResponse(bytes)};
-    const wr =async()=>{if(!p.write)throw new Error('特征不支持写');await ch.writeValue(bytes)};
-    try{ p.writeWithoutResponse?await wnr():await wr() }
-    catch(e){ await (p.writeWithoutResponse?wr:wnr)(); }   /* 部分模块固件只认一种写法，失败自动换另一种重试 */
+    let firstError=null;
+    /* 不迷信属性位：部分模块固件声明"带响应写"却只认无响应写（反之亦然），两种都真实尝试 */
+    const tryWr =async()=>{try{await ch.writeValue(bytes);return true}catch(e){firstError=firstError||e;return false}};
+    const tryWnr=async()=>{try{await ch.writeValueWithoutResponse(bytes);return true}catch(e){firstError=firstError||e;return false}};
+    const attempts=p.write?[tryWr,tryWnr]:[tryWnr,tryWr];
+    for(const go of attempts){if(await go())return}
+    throw new Error((firstError&&firstError.name?firstError.name+': ':'')+(firstError&&firstError.message||'GATT 写入失败'));
   });
   writeChain=task.catch(()=>{});
   return task;
