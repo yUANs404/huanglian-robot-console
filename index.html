@@ -423,17 +423,40 @@ async function connectBle(){
       catch(e){lastError=e;server=null;await sleep(350)}
     }
     if(!server)throw lastError||new Error('GATT 连接失败');
-    const {writeChar,notifyChar,serviceName,map}=await discoverChars(server);
-    if(!writeChar)throw new Error('未找到可写特征，模块可能不是串口透传型');
+    const {notifyChar,serviceName,map,candidates}=await discoverChars(server);
+    if(!candidates.length)throw new Error('未找到可写特征，模块可能不是串口透传型');
     if(notifyChar){
       await notifyChar.startNotifications();
       notifyChar.addEventListener('characteristicvaluechanged',onNotify);
     }
     device.addEventListener('gattserverdisconnected',onGattDisconnected);
     resetSession();
-    state.ble={device,server,writeChar,notifyChar};
+    state.ble={device,server,writeChar:null,writeMethod:null,notifyChar};
     state.mode='real';state.portLabel=device.name||'BLE 设备';
-    log('系统','BLE OPEN',state.portLabel+' · '+(map.join(' ')||'未发现特征')+(notifyChar?' · 通知已开启':' · 无通知'));
+    /* 连接探测：用无害的测试帧（固件只回 OK 不动机构）把每个候选特征×两种写法全部真试一遍 */
+    const probe=[];let chosen=null;
+    for(const cand of candidates){
+      for(const m of ['writeValue','writeValueWithoutResponse']){
+        try{
+          if(m==='writeValue')await cand.ch.writeValue(frame(255));
+          else await cand.ch.writeValueWithoutResponse(frame(255));
+          state.tx+=6;chosen={char:cand.ch,method:m,tag:cand.tag};break;
+        }catch(e){probe.push(cand.tag+'·'+(m==='writeValue'?'带响应':'无响应')+'→'+((e&&e.name)||'')+' '+(e&&e.message||''))}
+      }
+      if(chosen)break;
+    }
+    log('系统','BLE GATT',state.portLabel+' 特征：'+(map.join(' ')||'无'));
+    if(!chosen){
+      log('系统','BLE PROBE','写路径探测全部失败：'+probe.join('；'));
+      try{device.gatt.disconnect()}catch{}
+      state.ble={device:null,server:null,writeChar:null,writeMethod:null,notifyChar:null};
+      writeChain=Promise.resolve();
+      resetSession();state.mode='offline';render();
+      toast('模块拒绝了所有写法，请把日志里 BLE GATT / BLE PROBE 两行发回',true);
+      return;
+    }
+    state.ble.writeChar=chosen.char;state.ble.writeMethod=chosen.method;
+    log('系统','BLE OPEN','写路径 '+chosen.tag+' · '+(chosen.method==='writeValue'?'带响应写':'无响应写')+(notifyChar?' · 通知已开启':' · 无通知'));
     setOp('蓝牙已连接，建议先测试通信','连接成功不代表固件已响应。点「测试通信」收到 OK 后再操作。');
     toast('已连接 '+state.portLabel);
     requestWake();
@@ -448,22 +471,25 @@ async function connectBle(){
 }
 async function discoverChars(server){
   const services=await server.getPrimaryServices();
-  let writeChar=null,notifyChar=null,serviceName='',map=[],bestScore=-1;
+  let notifyChar=null,serviceName='',map=[],candidates=[];
   for(const svc of services){
     let chars=[];
     try{chars=await svc.getCharacteristics()}catch{continue}
     for(const ch of chars){
       const p=ch.properties;
-      map.push(svc.uuid.slice(4,8).toUpperCase()+'-'+ch.uuid.slice(4,8).toUpperCase()+(p.write?'[写]':'')+(p.writeWithoutResponse?'[无响应写]':'')+(p.notify?'[通知]':''));
+      const tag=svc.uuid.slice(4,8).toUpperCase()+'-'+ch.uuid.slice(4,8).toUpperCase()+(p.write?'[写]':'')+(p.writeWithoutResponse?'[无响应写]':'')+(p.notify?'[通知]':'');
+      map.push(tag);
       if(!notifyChar&&p.notify){notifyChar=ch;serviceName=serviceName||svc.uuid.slice(4,8).toUpperCase()}
-      /* 打分选写特征：写+通知同体的最可能是串口透传口 */
-      const score=(p.write?2:0)+(p.writeWithoutResponse?1:0)+(p.notify?2:0);
-      if((p.write||p.writeWithoutResponse)&&score>bestScore){bestScore=score;writeChar=ch}
+      if(p.write||p.writeWithoutResponse){
+        /* 打分：写+通知同体的最可能是串口透传口 */
+        const score=(p.write?2:0)+(p.writeWithoutResponse?1:0)+(p.notify?2:0);
+        candidates.push({ch,score,tag});
+      }
     }
-    if(!serviceName&&(writeChar||notifyChar))serviceName=svc.uuid.slice(4,8).toUpperCase();
+    if(!serviceName&&(candidates.length||notifyChar))serviceName=svc.uuid.slice(4,8).toUpperCase();
   }
-  if(writeChar&&writeChar.properties.notify)notifyChar=writeChar;
-  return {writeChar,notifyChar,serviceName,map};
+  candidates.sort((a,b)=>b.score-a.score);
+  return {notifyChar,serviceName,map,candidates};
 }
 function onNotify(event){
   const dv=event.target.value;
@@ -474,15 +500,9 @@ function onNotify(event){
 function bleWrite(bytes){
   const ch=state.ble.writeChar;
   if(!ch)throw new Error('蓝牙未连接');
-  const p=ch.properties;
   const task=writeChain.then(async()=>{
-    let firstError=null;
-    /* 不迷信属性位：部分模块固件声明"带响应写"却只认无响应写（反之亦然），两种都真实尝试 */
-    const tryWr =async()=>{try{await ch.writeValue(bytes);return true}catch(e){firstError=firstError||e;return false}};
-    const tryWnr=async()=>{try{await ch.writeValueWithoutResponse(bytes);return true}catch(e){firstError=firstError||e;return false}};
-    const attempts=p.write?[tryWr,tryWnr]:[tryWnr,tryWr];
-    for(const go of attempts){if(await go())return}
-    throw new Error((firstError&&firstError.name?firstError.name+': ':'')+(firstError&&firstError.message||'GATT 写入失败'));
+    if(state.ble.writeMethod==='writeValueWithoutResponse')await ch.writeValueWithoutResponse(bytes);
+    else await ch.writeValue(bytes);
   });
   writeChain=task.catch(()=>{});
   return task;
