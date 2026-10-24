@@ -214,6 +214,7 @@ main{max-width:560px;margin:0 auto;padding:calc(66px + env(safe-area-inset-top))
         <button class="command" type="button" data-code="5" disabled><span class="name">前驱归位</span><span class="desc">回到预设位置</span><span class="cmd-tag">05</span></button>
         <button class="command" type="button" data-code="6" disabled><span class="name">倒料</span><span class="desc">切换倒料位置</span><span class="cmd-tag">06</span></button>
         <button class="command" type="button" data-code="7" disabled><span class="name">关节动作</span><span class="desc">舵机 3 / 4 联动</span><span class="cmd-tag">07</span></button>
+        <button class="command" type="button" data-code="9" disabled><span class="name">关节复位</span><span class="desc">3→140° 4→40° 同时归位</span><span class="cmd-tag">09</span></button>
         <button class="command reset" type="button" data-code="8" disabled><span class="name">整机复位</span><span class="desc">固件复位序列</span><span class="cmd-tag">08</span></button>
       </div>
       <div class="rear">
@@ -310,6 +311,7 @@ const COMMANDS=Object.freeze({
   3:{name:'左转',ack:'TurnLeft',detail:'双轮转向 3200 脉冲'},4:{name:'右转',ack:'TurnRight',detail:'双轮转向 3200 脉冲'},
   5:{name:'前驱归位',detail:'舵机 2 → 60°；舵机 1 → 110°'},6:{name:'倒料',detail:'舵机 2 → 130°；舵机 1 → 60°'},
   7:{name:'关节动作',detail:'舵机 3 → 30°；舵机 4 → 150°'},8:{name:'整机复位',detail:'复位序列，最终 2/1 → 0°/170°'},
+  9:{name:'关节复位',detail:'舵机 3 → 140°；舵机 4 → 40°，左右关节镜像同时归位'},
   26:{name:'后板上升',detail:'PA11 置高约 5 秒'},27:{name:'后板下降',detail:'PA12 置高约 5 秒'},
   255:{name:'测试通信',ack:'OK',detail:'通信探测，不产生机构动作'}
 });
