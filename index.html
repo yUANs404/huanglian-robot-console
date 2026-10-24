@@ -334,7 +334,7 @@ const state={
   pending:null,ackBuffer:'',verified:false,
   tx:0,rx:0,logs:[],epoch:0,timers:new Set(),closing:false,
   portLabel:'',view:'drive',
-  ble:{device:null,server:null,writeChar:null,notifyChar:null}
+  ble:{device:null,server:null,writeChar:null,writeMethod:null,notifyChars:[]}
 };
 let toastTimer=0,writeChain=Promise.resolve(),wakeLock=null;
 
@@ -423,42 +423,51 @@ async function connectBle(){
       catch(e){lastError=e;server=null;await sleep(350)}
     }
     if(!server)throw lastError||new Error('GATT 连接失败');
-    const {notifyChar,serviceName,map,candidates}=await discoverChars(server);
+    const {notifyChars,serviceName,map,candidates}=await discoverChars(server);
     if(!candidates.length)throw new Error('未找到可写特征，模块可能不是串口透传型');
-    if(notifyChar){
-      await notifyChar.startNotifications();
-      notifyChar.addEventListener('characteristicvaluechanged',onNotify);
+    /* 所有通知口全部订阅，回音走哪个口都能听到 */
+    for(const nc of notifyChars){
+      try{ await nc.startNotifications(); nc.addEventListener('characteristicvaluechanged',onNotify); }catch(e){}
     }
     device.addEventListener('gattserverdisconnected',onGattDisconnected);
     resetSession();
-    state.ble={device,server,writeChar:null,writeMethod:null,notifyChar};
+    state.ble={device,server,writeChar:null,writeMethod:null,notifyChars};
     state.mode='real';state.portLabel=device.name||'BLE 设备';
-    /* 连接探测：用无害的测试帧（固件只回 OK 不动机构）把每个候选特征×两种写法全部真试一遍 */
-    const probe=[];let chosen=null;
+    /* 端到端探测：每个候选写特征×两种写法，发测试帧后必须等到固件回音（OK）才算找到真正的透传口 */
+    const logStart=state.logs.length;
+    const okSince=()=>state.logs.slice(logStart).some(l=>l.kind==='RX'&&l.payload.indexOf('4F 4B')>=0);
+    const bytesSince=rx0=>state.rx>rx0;
+    const probe=[];let chosen=null,anyBytes=false;
     for(const cand of candidates){
       for(const m of ['writeValue','writeValueWithoutResponse']){
+        const rx0=state.rx;
         try{
           if(m==='writeValue')await cand.ch.writeValue(frame(255));
           else await cand.ch.writeValueWithoutResponse(frame(255));
-          state.tx+=6;chosen={char:cand.ch,method:m,tag:cand.tag};break;
-        }catch(e){probe.push(cand.tag+'·'+(m==='writeValue'?'带响应':'无响应')+'→'+((e&&e.name)||'')+' '+(e&&e.message||''))}
+          state.tx+=6;
+        }catch(e){probe.push(cand.tag+'·'+(m==='writeValue'?'带响应':'无响应')+'→写失败 '+(e&&e.message||''));continue}
+        for(let w=0;w<15&&!okSince();w++)await sleep(60);   /* 最多等 ~900ms 回音 */
+        if(okSince()){chosen={char:cand.ch,method:m,tag:cand.tag};probe.push(cand.tag+'·'+(m==='writeValue'?'带响应':'无响应')+'→写入OK·收到回音✓')}
+        else{if(bytesSince(rx0))anyBytes=true;probe.push(cand.tag+'·'+(m==='writeValue'?'带响应':'无响应')+'→写入OK·无回音')}
+        if(chosen)break;
       }
       if(chosen)break;
     }
     log('系统','BLE GATT',state.portLabel+' 特征：'+(map.join(' ')||'无'));
+    log('系统','BLE PROBE',probe.join('；'));
     if(!chosen){
-      log('系统','BLE PROBE','写路径探测全部失败：'+probe.join('；'));
+      log('系统','BLE FAIL',anyBytes?'有通知数据但没有 OK——波特率可能不是 9600，或接线半通。':'写入被接受但模块串口零回音——重点查：模块 TXD 是否接单片机 A10、RXD 是否接 A9（交叉），共地，波特率 9600。');
       try{device.gatt.disconnect()}catch{}
-      state.ble={device:null,server:null,writeChar:null,writeMethod:null,notifyChar:null};
+      state.ble={device:null,server:null,writeChar:null,writeMethod:null,notifyChars:[]};
       writeChain=Promise.resolve();
       resetSession();state.mode='offline';render();
-      toast('模块拒绝了所有写法，请把日志里 BLE GATT / BLE PROBE 两行发回',true);
+      toast('未找到有回音的透传口，见日志 BLE PROBE / BLE FAIL',true);
       return;
     }
     state.ble.writeChar=chosen.char;state.ble.writeMethod=chosen.method;
-    log('系统','BLE OPEN','写路径 '+chosen.tag+' · '+(chosen.method==='writeValue'?'带响应写':'无响应写')+(notifyChar?' · 通知已开启':' · 无通知'));
-    setOp('蓝牙已连接，建议先测试通信','连接成功不代表固件已响应。点「测试通信」收到 OK 后再操作。');
-    toast('已连接 '+state.portLabel);
+    log('系统','BLE OPEN','透传口 '+chosen.tag+' · '+(chosen.method==='writeValue'?'带响应写':'无响应写')+' · 通知口 '+notifyChars.length+' 个 · 回音已验证');
+    setOp('蓝牙已连接，通信已验证','探测时已收到 OK，链路端到端可用。可以开始操作。');
+    toast('已连接并验证 '+state.portLabel);
     requestWake();
   }catch(error){
     if(device&&device.gatt.connected){try{device.gatt.disconnect()}catch{}}
@@ -471,7 +480,7 @@ async function connectBle(){
 }
 async function discoverChars(server){
   const services=await server.getPrimaryServices();
-  let notifyChar=null,serviceName='',map=[],candidates=[];
+  let serviceName='',map=[],candidates=[],notifyChars=[];
   for(const svc of services){
     let chars=[];
     try{chars=await svc.getCharacteristics()}catch{continue}
@@ -479,17 +488,17 @@ async function discoverChars(server){
       const p=ch.properties;
       const tag=svc.uuid.slice(4,8).toUpperCase()+'-'+ch.uuid.slice(4,8).toUpperCase()+(p.write?'[写]':'')+(p.writeWithoutResponse?'[无响应写]':'')+(p.notify?'[通知]':'');
       map.push(tag);
-      if(!notifyChar&&p.notify){notifyChar=ch;serviceName=serviceName||svc.uuid.slice(4,8).toUpperCase()}
+      if(p.notify)notifyChars.push(ch);
       if(p.write||p.writeWithoutResponse){
         /* 打分：写+通知同体的最可能是串口透传口 */
         const score=(p.write?2:0)+(p.writeWithoutResponse?1:0)+(p.notify?2:0);
         candidates.push({ch,score,tag});
       }
     }
-    if(!serviceName&&(candidates.length||notifyChar))serviceName=svc.uuid.slice(4,8).toUpperCase();
+    if(!serviceName&&(candidates.length||notifyChars.length))serviceName=svc.uuid.slice(4,8).toUpperCase();
   }
   candidates.sort((a,b)=>b.score-a.score);
-  return {notifyChar,serviceName,map,candidates};
+  return {notifyChars,serviceName,map,candidates};
 }
 function onNotify(event){
   const dv=event.target.value;
@@ -519,7 +528,7 @@ async function disconnectBle(message){
   const device=state.ble.device;
   try{if(device&&device.gatt.connected)device.gatt.disconnect()}
   catch(e){log('提示','CLOSE',e.message,false)}
-  state.ble={device:null,server:null,writeChar:null,notifyChar:null};
+  state.ble={device:null,server:null,writeChar:null,writeMethod:null,notifyChars:[]};
   writeChain=Promise.resolve();
   resetSession();state.closing=false;state.mode='offline';
   log('系统','BLE CLOSED',message,false);
@@ -528,7 +537,7 @@ async function disconnectBle(message){
 }
 function onGattDisconnected(){
   if(state.mode!=='real'||state.closing)return;
-  state.ble={device:null,server:null,writeChar:null,notifyChar:null};
+  state.ble={device:null,server:null,writeChar:null,writeMethod:null,notifyChars:[]};
   writeChain=Promise.resolve();
   resetSession();state.mode='offline';
   log('系统','BLE LOST','蓝牙连接中断；断开不代表机器人已停止。');
